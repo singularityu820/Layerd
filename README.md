@@ -148,6 +148,18 @@ Download and export it into this project's manifest format:
 python scripts/download_layereddepth_hf.py --root data/layereddepth_syn
 ```
 
+The downloader is resume-friendly by default. If a server disconnects, run the
+same command again: existing manifest records are skipped, completed image/depth
+files are kept, and new samples are appended. Media files are written through a
+temporary file and atomically renamed, so an interrupted write will not be
+mistaken for a completed sample.
+
+To deliberately rebuild manifests and overwrite exported media:
+
+```bash
+python scripts/download_layereddepth_hf.py --root data/layereddepth_syn --overwrite --no-resume
+```
+
 For a quick download test:
 
 ```bash
