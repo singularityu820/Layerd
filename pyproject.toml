@@ -1,0 +1,19 @@
+[project]
+name = "layereddepth-train"
+version = "0.1.0"
+description = "Training networks for LayeredDepth multi-layer depth estimation."
+requires-python = ">=3.10"
+dependencies = [
+  "torch",
+  "torchvision",
+  "numpy",
+  "pillow",
+  "pyyaml",
+  "datasets",
+  "huggingface_hub",
+  "tqdm",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["layereddepth_train*"]

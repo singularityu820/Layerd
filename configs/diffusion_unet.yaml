@@ -1,0 +1,31 @@
+seed: 7
+model:
+  family: diffusion
+  num_layers: 8
+  base_channels: 64
+  time_dim: 256
+  condition_valid_masks: true
+  diffusion:
+    log_depth: true
+    eps: 0.001
+  scheduler:
+    timesteps: 1000
+    beta_start: 0.0001
+    beta_end: 0.02
+data:
+  root: data/layereddepth_syn
+  train_manifest: manifests/train.jsonl
+  val_manifest: manifests/validation.jsonl
+  image_size: [384, 512]
+  depth_scale: 1000.0
+  use_snapped_depth: true
+train:
+  epochs: 100
+  batch_size: 2
+  lr: 0.0001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  num_workers: 4
+  log_every: 20
+  save_every: 10
+  output_dir: runs/diffusion_unet

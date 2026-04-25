@@ -1,0 +1,29 @@
+seed: 7
+model:
+  family: paper
+  architecture: index_concat
+  num_layers: 7
+  core:
+    name: tiny
+    base_channels: 16
+data:
+  root: data/toy
+  train_manifest: manifests/train.jsonl
+  val_manifest: manifests/val.jsonl
+  image_size: [128, 160]
+  depth_scale: 1.0
+  use_snapped_depth: true
+loss:
+  variance_focus: 0.85
+  scale: 10.0
+train:
+  epochs: 1
+  batch_size: 2
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip: 1.0
+  num_workers: 0
+  log_every: 1
+  save_every: 1
+  output_dir: runs/tiny_smoke
+

@@ -1,0 +1,28 @@
+seed: 7
+model:
+  family: paper
+  architecture: multi_head
+  num_layers: 8
+  core:
+    name: newcrfs
+    max_depth: 10.0
+data:
+  root: data/layereddepth_syn
+  train_manifest: manifests/train.jsonl
+  val_manifest: manifests/validation.jsonl
+  image_size: [384, 512]
+  depth_scale: 1000.0
+  use_snapped_depth: true
+loss:
+  variance_focus: 0.85
+  scale: 10.0
+train:
+  epochs: 100
+  batch_size: 4
+  lr: 0.0001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  num_workers: 4
+  log_every: 20
+  save_every: 10
+  output_dir: runs/paper_multi_head
