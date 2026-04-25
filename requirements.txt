@@ -1,0 +1,14 @@
+numpy
+pillow
+pyyaml
+datasets
+huggingface_hub
+tqdm
+matplotlib
+tensorboardX
+timm
+opencv-python
+scipy
+scikit-image
+mmcv-lite
+

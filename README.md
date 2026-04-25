@@ -22,6 +22,91 @@ The paper configs use `core.name: newcrfs` because the paper adopts NeWCRFs as
 the backbone. For local smoke tests without the NeWCRFs repository installed,
 switch `core.name` to `tiny`.
 
+## Environment Setup
+
+Recommended training environment:
+
+```text
+Python 3.10
+PyTorch 2.6.0
+torchvision 0.21.0
+CUDA 12.6 wheel for recent NVIDIA GPUs
+```
+
+Create and activate a Conda environment.
+
+Windows:
+
+```powershell
+D:\software\miniconda3\Scripts\conda.exe create -y -n layereddepth python=3.10 pip
+D:\software\miniconda3\Scripts\activate.bat layereddepth
+```
+
+Linux or cloud server:
+
+```bash
+conda create -y -n layereddepth python=3.10 pip
+conda activate layereddepth
+```
+
+Install CUDA PyTorch. This command is a good default for RTX 40-series,
+L40S, A100, and H100 machines with a recent NVIDIA driver:
+
+```bash
+python -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu126 --timeout 1000 --retries 5
+```
+
+If your server image already pins a different CUDA runtime, use the official
+PyTorch install selector and keep `torch` and `torchvision` versions matched.
+
+Install this project and the non-PyTorch dependencies:
+
+```bash
+cd D:\document\code\layereddepth_train
+python -m pip install -e .
+python -m pip install -r requirements.txt
+```
+
+On Linux, use the project path on that machine instead of the Windows path:
+
+```bash
+cd ~/layereddepth_train
+python -m pip install -e .
+python -m pip install -r requirements.txt
+```
+
+Verify the environment:
+
+```bash
+python -c "import sys; print(sys.executable)"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+python -c "from layereddepth_train.models.backbones import NewCRFsAdapter; print('project import OK')"
+python -c "import sys; sys.path.insert(0, r'third_party/NeWCRFs'); from newcrfs.networks.NewCRFDepth import NewCRFDepth; print('NeWCRFs import OK')"
+```
+
+On Windows, the first command should point to:
+
+```text
+D:\software\miniconda3\envs\layereddepth\python.exe
+```
+
+Run a small smoke test after downloading a few Hugging Face samples:
+
+```bash
+python scripts/download_layereddepth_hf.py --root data/layereddepth_syn_smoke --max-samples 8
+python -m layereddepth_train.train --config configs/hf_smoke_tiny.yaml
+```
+
+Common setup notes:
+
+- If `mmcv` import fails, install `mmcv-lite`.
+- Hugging Face symlink warnings on Windows are safe to ignore; they only affect
+  cache disk usage.
+- A final `WinError 10038` after manifests are written is usually a Windows
+  streaming-download cleanup warning, not a failed export.
+- If training says `manifest not found`, run the Hugging Face download script or
+  update `data.root` in the config.
+
 ## Data Manifest
 
 Training uses JSONL manifests. Each line describes one sample:
