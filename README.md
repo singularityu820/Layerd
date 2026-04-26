@@ -148,17 +148,23 @@ Download and export it into this project's manifest format:
 python scripts/download_layereddepth_hf.py --root data/layereddepth_syn
 ```
 
-The downloader is resume-friendly by default. If a server disconnects, run the
-same command again: existing manifest records are skipped, completed image/depth
-files are kept, and new samples are appended. Media files are written through a
-temporary file and atomically renamed, so an interrupted write will not be
-mistaken for a completed sample.
+The downloader is resume-friendly by default: existing manifest records are
+skipped, completed image/depth files are kept, and new samples are appended.
+Media files are written through a temporary file and atomically renamed, so an
+interrupted write will not be mistaken for a completed sample.
 
-By default the script fast-resumes from the number of rows already present in
-the manifest. If you have 11,996 lines in `manifests/train.jsonl`, the next run
-starts around row 11,996 instead of scanning from row 0. If you suspect the
-manifest is out of order, add `--no-fast-resume` to scan from the beginning and
-skip known keys one by one.
+For a real resume after a long interrupted server download, prefer
+`--no-streaming`. Hugging Face streaming can call `.skip(N)`, but that still
+scans earlier parquet shards internally, so it may appear to start again from
+`train-00000-of-00056.parquet`. Non-streaming mode builds/uses the local HF cache
+and can select the remaining rows without stream-scanning from shard 0:
+
+```bash
+python scripts/download_layereddepth_hf.py --root data/layereddepth_syn --splits train --cache-dir /data/hf_cache --no-streaming
+```
+
+If you suspect the manifest is out of order, add `--no-fast-resume` to scan from
+the beginning and skip known keys one by one.
 
 To deliberately rebuild manifests and overwrite exported media:
 

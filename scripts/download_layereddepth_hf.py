@@ -105,11 +105,11 @@ def _skip_completed_rows(dataset: Any, count: int) -> Any:
     if count <= 0:
         return dataset
 
-    if hasattr(dataset, "skip"):
-        return dataset.skip(count)
-
     if hasattr(dataset, "select") and hasattr(dataset, "__len__"):
         return dataset.select(range(count, len(dataset)))
+
+    if hasattr(dataset, "skip"):
+        return dataset.skip(count)
 
     print("Dataset object does not support fast skip; falling back to manifest scan.")
     return dataset
@@ -137,6 +137,19 @@ def _export_split(args: argparse.Namespace, split: str) -> None:
     added_count = 0
     skipped_count = 0
     fast_resume_count = total_count if resume and not args.no_fast_resume else 0
+
+    if (
+        fast_resume_count
+        and not args.no_streaming
+        and not args.allow_streaming_skip
+    ):
+        raise RuntimeError(
+            "Fast resume with Hugging Face streaming is not a true seek: "
+            "datasets.IterableDataset.skip() still scans earlier parquet shards. "
+            "Re-run with --no-streaming to resume from the manifest count without "
+            "stream-scanning from shard 0, or add --allow-streaming-skip if you "
+            "intentionally want the slower scan."
+        )
 
     if fast_resume_count:
         dataset = _skip_completed_rows(dataset, fast_resume_count)
@@ -239,6 +252,14 @@ def main() -> None:
         help=(
             "Scan from the beginning and skip manifest keys one by one. "
             "This is slower but useful if the manifest is not in dataset order."
+        ),
+    )
+    parser.add_argument(
+        "--allow-streaming-skip",
+        action="store_true",
+        help=(
+            "Allow resume with streaming mode even though Hugging Face will scan "
+            "earlier parquet shards internally."
         ),
     )
     parser.add_argument(
