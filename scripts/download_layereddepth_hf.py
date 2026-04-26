@@ -101,6 +101,20 @@ def _prepare_manifest_for_resume(manifest_path: Path) -> dict[str, dict[str, Any
     return _read_manifest(manifest_path)
 
 
+def _skip_completed_rows(dataset: Any, count: int) -> Any:
+    if count <= 0:
+        return dataset
+
+    if hasattr(dataset, "skip"):
+        return dataset.skip(count)
+
+    if hasattr(dataset, "select") and hasattr(dataset, "__len__"):
+        return dataset.select(range(count, len(dataset)))
+
+    print("Dataset object does not support fast skip; falling back to manifest scan.")
+    return dataset
+
+
 def _export_split(args: argparse.Namespace, split: str) -> None:
     root = Path(args.root)
     image_dir = root / "images" / split
@@ -122,6 +136,14 @@ def _export_split(args: argparse.Namespace, split: str) -> None:
     total_count = len(completed)
     added_count = 0
     skipped_count = 0
+    fast_resume_count = total_count if resume and not args.no_fast_resume else 0
+
+    if fast_resume_count:
+        dataset = _skip_completed_rows(dataset, fast_resume_count)
+        print(
+            f"Fast-resuming {split} from row {fast_resume_count} "
+            f"based on {total_count} manifest records."
+        )
 
     try:
         from tqdm import tqdm
@@ -138,7 +160,10 @@ def _export_split(args: argparse.Namespace, split: str) -> None:
         handle_mode = "w"
 
     with handle_path.open(handle_mode, encoding="utf-8") as handle:
-        for row_index, sample in enumerate(tqdm(dataset, desc=f"export {split}")):
+        for row_index, sample in enumerate(
+            tqdm(dataset, desc=f"export {split}"),
+            start=fast_resume_count,
+        ):
             if args.max_samples is not None and total_count >= args.max_samples:
                 break
 
@@ -207,6 +232,14 @@ def main() -> None:
         "--no-resume",
         action="store_true",
         help="Regenerate manifests from scratch instead of appending missing samples.",
+    )
+    parser.add_argument(
+        "--no-fast-resume",
+        action="store_true",
+        help=(
+            "Scan from the beginning and skip manifest keys one by one. "
+            "This is slower but useful if the manifest is not in dataset order."
+        ),
     )
     parser.add_argument(
         "--no-streaming",

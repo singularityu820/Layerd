@@ -154,6 +154,12 @@ files are kept, and new samples are appended. Media files are written through a
 temporary file and atomically renamed, so an interrupted write will not be
 mistaken for a completed sample.
 
+By default the script fast-resumes from the number of rows already present in
+the manifest. If you have 11,996 lines in `manifests/train.jsonl`, the next run
+starts around row 11,996 instead of scanning from row 0. If you suspect the
+manifest is out of order, add `--no-fast-resume` to scan from the beginning and
+skip known keys one by one.
+
 To deliberately rebuild manifests and overwrite exported media:
 
 ```bash
