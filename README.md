@@ -178,6 +178,19 @@ train:
 keeps periodic snapshots much smaller. On small disks, increase `save_every` or
 move `output_dir` to a larger volume.
 
+Resume training from the last full checkpoint:
+
+```bash
+python -m layereddepth_train.train --config configs/paper_index_concat.yaml --resume runs/paper_index_concat/last.pt
+```
+
+If the crash happened while saving, remove any leftover temporary checkpoint
+before resuming:
+
+```bash
+rm -f runs/paper_index_concat/*.tmp
+```
+
 ## Data Manifest
 
 Training uses JSONL manifests. Each line describes one sample:

@@ -284,7 +284,25 @@ def _save_checkpoint(checkpoint: dict[str, Any], path: Path) -> None:
         ) from exc
 
 
-def train(config: dict[str, Any]) -> None:
+def _load_training_checkpoint(
+    path: Path,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> tuple[int, int]:
+    checkpoint = torch.load(path, map_location=device)
+    model.load_state_dict(checkpoint["model"])
+    if "optimizer" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer"])
+    else:
+        print(f"Checkpoint {path} has no optimizer state; resuming with a fresh optimizer.")
+    start_epoch = int(checkpoint.get("epoch", 0))
+    global_step = int(checkpoint.get("global_step", 0))
+    print(f"Resumed from {path}: completed_epoch={start_epoch} global_step={global_step}")
+    return start_epoch, global_step
+
+
+def train(config: dict[str, Any], resume: str | Path | None = None) -> None:
     _set_seed(int(config.get("seed", 7)))
     device = torch.device(config["train"].get("device", "cuda" if torch.cuda.is_available() else "cpu"))
     train_loader = _make_loader(config, "train")
@@ -310,9 +328,17 @@ def train(config: dict[str, Any]) -> None:
     save_epoch_optimizer = bool(config["train"].get("save_epoch_optimizer", False))
     image_every_epochs = int(config.get("tensorboard", {}).get("image_every_epochs", 1))
 
+    resume_path = Path(resume) if resume is not None else config["train"].get("resume")
+    resume_path = _project_path(config, resume_path) if resume_path else None
+    start_epoch = 0
     global_step = 0
+    if resume_path is not None:
+        start_epoch, global_step = _load_training_checkpoint(
+            resume_path, model=model, optimizer=optimizer, device=device
+        )
+
     try:
-        for epoch in range(epochs):
+        for epoch in range(start_epoch, epochs):
             model.train()
             running = 0.0
             epoch_losses = []
@@ -405,8 +431,13 @@ def train(config: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Path to a checkpoint such as runs/paper_index_concat/last.pt.",
+    )
     args = parser.parse_args()
-    train(_load_config(args.config))
+    train(_load_config(args.config), resume=args.resume)
 
 
 if __name__ == "__main__":
