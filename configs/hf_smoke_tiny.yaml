@@ -25,6 +25,8 @@ train:
   num_workers: 0
   log_every: 1
   save_every: 1
+  save_optimizer: true
+  save_epoch_optimizer: false
   output_dir: runs/hf_smoke_tiny
 tensorboard:
   enabled: true

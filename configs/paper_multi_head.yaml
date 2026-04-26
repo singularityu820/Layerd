@@ -25,6 +25,8 @@ train:
   num_workers: 4
   log_every: 20
   save_every: 10
+  save_optimizer: true
+  save_epoch_optimizer: false
   output_dir: runs/paper_multi_head
 tensorboard:
   enabled: true

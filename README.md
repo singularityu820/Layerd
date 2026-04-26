@@ -106,6 +106,11 @@ Common setup notes:
   streaming-download cleanup warning, not a failed export.
 - If training says `manifest not found`, run the Hugging Face download script or
   update `data.root` in the config.
+- If `torch.save` fails with `unexpected pos`, check disk space with `df -h`.
+  Checkpoints are now written atomically through `.tmp` files. By default
+  `last.pt` includes optimizer state for resume, while periodic `epoch_XXXX.pt`
+  files store model weights only. To make even `last.pt` smaller, set
+  `train.save_optimizer: false`.
 
 ## TensorBoard
 
@@ -148,6 +153,30 @@ tensorboard:
   max_images: 2
   max_layers: 8
 ```
+
+## Checkpoints
+
+The training loop writes:
+
+```text
+runs/<experiment>/last.pt
+runs/<experiment>/epoch_0010.pt
+runs/<experiment>/epoch_0020.pt
+```
+
+Checkpoint writes are atomic: each file is first written as `*.tmp`, then renamed
+after a complete save. Relevant config fields:
+
+```yaml
+train:
+  save_every: 10
+  save_optimizer: true
+  save_epoch_optimizer: false
+```
+
+`save_optimizer: true` keeps `last.pt` resumable. `save_epoch_optimizer: false`
+keeps periodic snapshots much smaller. On small disks, increase `save_every` or
+move `output_dir` to a larger volume.
 
 ## Data Manifest
 

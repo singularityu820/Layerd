@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import random
 from pathlib import Path
 from typing import Any
@@ -237,6 +238,52 @@ def _log_tensorboard_images(
         )
 
 
+def _build_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    epoch: int,
+    global_step: int,
+    config: dict[str, Any],
+    include_optimizer: bool,
+) -> dict[str, Any]:
+    checkpoint = {
+        "model": model.state_dict(),
+        "epoch": epoch,
+        "global_step": global_step,
+        "config": config,
+    }
+    if include_optimizer:
+        checkpoint["optimizer"] = optimizer.state_dict()
+    return checkpoint
+
+
+def _format_free_space(path: Path) -> str:
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return "unknown"
+    return f"{usage.free / (1024 ** 3):.2f} GiB free"
+
+
+def _save_checkpoint(checkpoint: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    if tmp_path.exists():
+        tmp_path.unlink()
+    try:
+        torch.save(checkpoint, tmp_path)
+        tmp_path.replace(path)
+    except Exception as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise RuntimeError(
+            f"Failed to save checkpoint to {path}. "
+            f"Disk state near output directory: {_format_free_space(path.parent)}. "
+            "If disk space is low, set train.save_optimizer: false, "
+            "increase train.save_every, or move train.output_dir to a larger disk."
+        ) from exc
+
+
 def train(config: dict[str, Any]) -> None:
     _set_seed(int(config.get("seed", 7)))
     device = torch.device(config["train"].get("device", "cuda" if torch.cuda.is_available() else "cpu"))
@@ -259,6 +306,8 @@ def train(config: dict[str, Any]) -> None:
 
     epochs = int(config["train"].get("epochs", 100))
     log_every = int(config["train"].get("log_every", 20))
+    save_optimizer = bool(config["train"].get("save_optimizer", True))
+    save_epoch_optimizer = bool(config["train"].get("save_epoch_optimizer", False))
     image_every_epochs = int(config.get("tensorboard", {}).get("image_every_epochs", 1))
 
     global_step = 0
@@ -327,16 +376,27 @@ def train(config: dict[str, Any]) -> None:
                     tag_prefix="val",
                 )
 
-            checkpoint = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch + 1,
-                "global_step": global_step,
-                "config": config,
-            }
-            torch.save(checkpoint, output_dir / "last.pt")
+            checkpoint = _build_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                epoch=epoch + 1,
+                global_step=global_step,
+                config=config,
+                include_optimizer=save_optimizer,
+            )
+            _save_checkpoint(checkpoint, output_dir / "last.pt")
             if (epoch + 1) % int(config["train"].get("save_every", 10)) == 0:
-                torch.save(checkpoint, output_dir / f"epoch_{epoch + 1:04d}.pt")
+                epoch_checkpoint = checkpoint
+                if save_optimizer != save_epoch_optimizer:
+                    epoch_checkpoint = _build_checkpoint(
+                        model=model,
+                        optimizer=optimizer,
+                        epoch=epoch + 1,
+                        global_step=global_step,
+                        config=config,
+                        include_optimizer=save_epoch_optimizer,
+                    )
+                _save_checkpoint(epoch_checkpoint, output_dir / f"epoch_{epoch + 1:04d}.pt")
     finally:
         if writer is not None:
             writer.close()
