@@ -95,8 +95,9 @@ class NewCRFsAdapter(nn.Module):
             from newcrfs.networks.NewCRFDepth import NewCRFDepth
         except ImportError as exc:
             raise ImportError(
-                "NeWCRFs is not importable. Install the official NeWCRFs repo "
-                "or switch config model.core.name to 'tiny' for smoke tests."
+                "NeWCRFs is not importable. Make sure third_party/NeWCRFs exists "
+                "and install the NeWCRFs dependencies from requirements.txt. "
+                f"Original import error: {exc}"
             ) from exc
 
         self.model = NewCRFDepth(**kwargs)
