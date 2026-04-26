@@ -6,9 +6,9 @@ huggingface_hub
 tqdm
 matplotlib
 tensorboardX
+tensorboard
 timm
 opencv-python
 scipy
 scikit-image
 mmcv-lite
-

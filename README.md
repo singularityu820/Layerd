@@ -107,6 +107,48 @@ Common setup notes:
 - If training says `manifest not found`, run the Hugging Face download script or
   update `data.root` in the config.
 
+## TensorBoard
+
+Training writes TensorBoard logs by default under each run directory:
+
+```text
+runs/paper_index_concat/tensorboard
+runs/diffusion_unet/tensorboard
+```
+
+Start TensorBoard on a server:
+
+```bash
+tensorboard --logdir runs --host 0.0.0.0 --port 6006
+```
+
+If `tensorboard` is missing in an existing environment:
+
+```bash
+python -m pip install tensorboard
+```
+
+The logger records:
+
+- `train/loss`, `train/lr`, and `train/grad_norm` every `train.log_every` steps;
+- `epoch/train_loss` and `epoch/val_loss` every epoch;
+- validation RGB images, target depth maps, and paper-baseline prediction depth
+  maps every `tensorboard.image_every_epochs` epochs.
+
+For diffusion configs, image logging currently records RGB and target depth
+maps. Full reverse-diffusion samples are intentionally not generated during
+training because that would add a large per-epoch cost.
+
+You can tune logging in each config:
+
+```yaml
+tensorboard:
+  enabled: true
+  image_every_epochs: 1
+  max_images: 2
+  max_layers: 8
+```
+
 ## Data Manifest
 
 Training uses JSONL manifests. Each line describes one sample:

@@ -26,3 +26,8 @@ train:
   log_every: 20
   save_every: 10
   output_dir: runs/paper_multi_head
+tensorboard:
+  enabled: true
+  image_every_epochs: 1
+  max_images: 2
+  max_layers: 8

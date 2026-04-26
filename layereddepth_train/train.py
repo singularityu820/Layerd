@@ -21,6 +21,9 @@ from layereddepth_train.models.baselines import (
 from layereddepth_train.models.diffusion import DiffusionScheduler, build_diffusion_model
 
 
+SummaryWriterType = Any
+
+
 def _load_config(path: str | Path) -> dict[str, Any]:
     config_path = Path(path).resolve()
     with config_path.open("r", encoding="utf-8") as handle:
@@ -138,6 +141,102 @@ def _build_model(config: dict[str, Any]) -> tuple[torch.nn.Module, DiffusionSche
     raise ValueError(f"Unknown model family: {family}")
 
 
+def _make_summary_writer(config: dict[str, Any], output_dir: Path) -> SummaryWriterType | None:
+    tensorboard_config = config.get("tensorboard", {})
+    if not bool(tensorboard_config.get("enabled", True)):
+        return None
+
+    log_dir = tensorboard_config.get("log_dir")
+    log_dir = _project_path(config, log_dir) if log_dir else output_dir / "tensorboard"
+
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except ImportError:
+        try:
+            from tensorboardX import SummaryWriter
+        except ImportError as exc:
+            raise ImportError(
+                "TensorBoard logging is enabled, but neither tensorboard nor "
+                "tensorboardX is installed. Install with: python -m pip install tensorboard"
+            ) from exc
+
+    return SummaryWriter(log_dir=str(log_dir))
+
+
+def _depth_to_display(depth: Tensor, valid: Tensor | None = None) -> Tensor:
+    depth = depth.detach().float().cpu()
+    if valid is not None:
+        valid = valid.detach().bool().cpu()
+        if valid.ndim == depth.ndim - 1:
+            valid = valid.unsqueeze(1)
+        valid = valid.expand_as(depth)
+    else:
+        valid = torch.isfinite(depth)
+
+    values = depth[valid & torch.isfinite(depth)]
+    if values.numel() == 0:
+        return torch.zeros_like(depth)
+
+    lo = torch.quantile(values, 0.02)
+    hi = torch.quantile(values, 0.98)
+    if float(hi - lo) < 1e-6:
+        hi = lo + 1.0
+
+    display = torch.clamp((depth - lo) / (hi - lo), 0.0, 1.0)
+    display = torch.where(valid, display, torch.zeros_like(display))
+    return display
+
+
+@torch.no_grad()
+def _log_tensorboard_images(
+    writer: SummaryWriterType | None,
+    model: torch.nn.Module,
+    scheduler: DiffusionScheduler | None,
+    batch: dict[str, Tensor] | None,
+    config: dict[str, Any],
+    step: int,
+    tag_prefix: str,
+) -> None:
+    if writer is None or batch is None:
+        return
+
+    tensorboard_config = config.get("tensorboard", {})
+    max_images = int(tensorboard_config.get("max_images", 2))
+    max_layers = int(tensorboard_config.get("max_layers", config["model"].get("num_layers", 8)))
+
+    image = batch["image"][:max_images]
+    depth = batch["depth"][:max_images]
+    valid = batch["valid"][:max_images]
+
+    writer.add_images(f"{tag_prefix}/rgb", image.detach().cpu().clamp(0.0, 1.0), step)
+
+    for layer_idx in range(min(depth.shape[1], max_layers)):
+        layer_tag = f"layer_{layer_idx + 1:02d}"
+        target = depth[:, layer_idx : layer_idx + 1]
+        target_valid = valid[:, layer_idx : layer_idx + 1]
+        writer.add_images(
+            f"{tag_prefix}/target/{layer_tag}",
+            _depth_to_display(target, target_valid),
+            step,
+        )
+
+    if scheduler is not None:
+        return
+
+    model.eval()
+    prediction = model.predict_all_layers(image.to(next(model.parameters()).device))
+    prediction = prediction[:max_images]
+    for layer_idx in range(min(prediction.shape[1], max_layers)):
+        layer_tag = f"layer_{layer_idx + 1:02d}"
+        pred = prediction[:, layer_idx : layer_idx + 1]
+        pred_valid = valid[:, layer_idx : layer_idx + 1].to(pred.device)
+        writer.add_images(
+            f"{tag_prefix}/prediction/{layer_tag}",
+            _depth_to_display(pred, pred_valid),
+            step,
+        )
+
+
 def train(config: dict[str, Any]) -> None:
     _set_seed(int(config.get("seed", 7)))
     device = torch.device(config["train"].get("device", "cuda" if torch.cuda.is_available() else "cpu"))
@@ -156,57 +255,91 @@ def train(config: dict[str, Any]) -> None:
     )
     output_dir = _project_path(config, config["train"].get("output_dir", "runs/layereddepth"))
     output_dir.mkdir(parents=True, exist_ok=True)
+    writer = _make_summary_writer(config, output_dir)
 
     epochs = int(config["train"].get("epochs", 100))
     log_every = int(config["train"].get("log_every", 20))
+    image_every_epochs = int(config.get("tensorboard", {}).get("image_every_epochs", 1))
 
     global_step = 0
-    for epoch in range(epochs):
-        model.train()
-        running = 0.0
-        for step, batch in enumerate(train_loader):
-            batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
-            if scheduler is None:
-                loss = _paper_step(model, batch, config)
-            else:
-                loss = _diffusion_step(model, scheduler, batch, config)
+    try:
+        for epoch in range(epochs):
+            model.train()
+            running = 0.0
+            epoch_losses = []
+            for step, batch in enumerate(train_loader):
+                batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
+                if scheduler is None:
+                    loss = _paper_step(model, batch, config)
+                else:
+                    loss = _diffusion_step(model, scheduler, batch, config)
 
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), float(config["train"].get("grad_clip", 1.0))
-            )
-            optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float(config["train"].get("grad_clip", 1.0))
+                )
+                optimizer.step()
 
-            running += float(loss.detach())
-            global_step += 1
-            if (step + 1) % log_every == 0:
-                avg = running / log_every
-                print(f"epoch={epoch + 1} step={step + 1} global_step={global_step} loss={avg:.5f}")
-                running = 0.0
+                loss_value = float(loss.detach())
+                running += loss_value
+                epoch_losses.append(loss_value)
+                global_step += 1
+                if (step + 1) % log_every == 0:
+                    avg = running / log_every
+                    print(f"epoch={epoch + 1} step={step + 1} global_step={global_step} loss={avg:.5f}")
+                    if writer is not None:
+                        writer.add_scalar("train/loss", avg, global_step)
+                        writer.add_scalar("train/lr", optimizer.param_groups[0]["lr"], global_step)
+                        writer.add_scalar("train/grad_norm", float(grad_norm), global_step)
+                    running = 0.0
 
-        if val_loader is not None:
-            model.eval()
-            val_losses = []
-            with torch.no_grad():
-                for batch in val_loader:
-                    batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
-                    if scheduler is None:
-                        val_losses.append(float(_paper_step(model, batch, config)))
-                    else:
-                        val_losses.append(float(_diffusion_step(model, scheduler, batch, config)))
-            print(f"epoch={epoch + 1} val_loss={np.mean(val_losses):.5f}")
+            epoch_train_loss = float(np.mean(epoch_losses)) if epoch_losses else 0.0
+            if writer is not None:
+                writer.add_scalar("epoch/train_loss", epoch_train_loss, epoch + 1)
 
-        checkpoint = {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch + 1,
-            "global_step": global_step,
-            "config": config,
-        }
-        torch.save(checkpoint, output_dir / "last.pt")
-        if (epoch + 1) % int(config["train"].get("save_every", 10)) == 0:
-            torch.save(checkpoint, output_dir / f"epoch_{epoch + 1:04d}.pt")
+            first_val_batch = None
+            if val_loader is not None:
+                model.eval()
+                val_losses = []
+                with torch.no_grad():
+                    for batch in val_loader:
+                        batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
+                        if first_val_batch is None:
+                            first_val_batch = {key: value.detach() for key, value in batch.items()}
+                        if scheduler is None:
+                            val_losses.append(float(_paper_step(model, batch, config)))
+                        else:
+                            val_losses.append(float(_diffusion_step(model, scheduler, batch, config)))
+                val_loss = float(np.mean(val_losses)) if val_losses else 0.0
+                print(f"epoch={epoch + 1} val_loss={val_loss:.5f}")
+                if writer is not None:
+                    writer.add_scalar("epoch/val_loss", val_loss, epoch + 1)
+
+            if image_every_epochs > 0 and (epoch + 1) % image_every_epochs == 0:
+                _log_tensorboard_images(
+                    writer,
+                    model,
+                    scheduler,
+                    first_val_batch,
+                    config,
+                    global_step,
+                    tag_prefix="val",
+                )
+
+            checkpoint = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch + 1,
+                "global_step": global_step,
+                "config": config,
+            }
+            torch.save(checkpoint, output_dir / "last.pt")
+            if (epoch + 1) % int(config["train"].get("save_every", 10)) == 0:
+                torch.save(checkpoint, output_dir / f"epoch_{epoch + 1:04d}.pt")
+    finally:
+        if writer is not None:
+            writer.close()
 
 
 def main() -> None:

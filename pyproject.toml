@@ -12,6 +12,7 @@ dependencies = [
   "datasets",
   "huggingface_hub",
   "tqdm",
+  "tensorboard",
 ]
 
 [tool.setuptools.packages.find]

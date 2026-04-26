@@ -26,4 +26,8 @@ train:
   log_every: 1
   save_every: 1
   output_dir: runs/tiny_smoke
-
+tensorboard:
+  enabled: true
+  image_every_epochs: 1
+  max_images: 2
+  max_layers: 7
