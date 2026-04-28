@@ -141,8 +141,8 @@ The logger records:
   maps every `tensorboard.image_every_epochs` epochs.
 
 For diffusion configs, image logging currently records RGB and target depth
-maps. Full reverse-diffusion samples are intentionally not generated during
-training because that would add a large per-epoch cost.
+maps plus optional prediction depth maps from a fast DDIM-style sampler. This is
+for qualitative monitoring, not final evaluation.
 
 You can tune logging in each config:
 
@@ -152,7 +152,13 @@ tensorboard:
   image_every_epochs: 1
   max_images: 2
   max_layers: 8
+  diffusion_sample_steps: 25  # diffusion configs only; set 0 to disable samples
 ```
+
+Diffusion training loss is noise-prediction MSE. A low value means the denoiser
+is learning the diffusion objective; it is not directly comparable to SILog or
+metric depth error. Use TensorBoard prediction images and downstream depth
+metrics to judge depth quality.
 
 ## Checkpoints
 

@@ -157,6 +157,56 @@ class DiffusionScheduler(nn.Module):
             current = self.p_sample(model, image, current, timestep, valid_masks=valid_masks)
         return current
 
+    @torch.no_grad()
+    def sample_ddim(
+        self,
+        model: ConditionalLayeredDepthUNet,
+        image: Tensor,
+        shape: tuple[int, int, int, int],
+        valid_masks: Tensor | None = None,
+        steps: int = 50,
+    ) -> Tensor:
+        """Fast deterministic DDIM-style sampler for validation visualization."""
+        steps = max(1, min(int(steps), self.timesteps))
+        current = torch.randn(shape, device=image.device)
+        timesteps = torch.linspace(
+            self.timesteps - 1,
+            0,
+            steps,
+            device=image.device,
+            dtype=torch.long,
+        )
+
+        for index, timestep_value in enumerate(timesteps):
+            timestep = torch.full(
+                (shape[0],),
+                int(timestep_value.item()),
+                device=image.device,
+                dtype=torch.long,
+            )
+            pred_noise = model(image, current, timestep, valid_masks=valid_masks)
+            alpha_bar_t = self.alphas_cumprod[timestep][:, None, None, None]
+            pred_clean = (
+                current - torch.sqrt(1.0 - alpha_bar_t) * pred_noise
+            ) / torch.sqrt(alpha_bar_t)
+
+            if index + 1 < len(timesteps):
+                prev_timestep = torch.full(
+                    (shape[0],),
+                    int(timesteps[index + 1].item()),
+                    device=image.device,
+                    dtype=torch.long,
+                )
+                alpha_bar_prev = self.alphas_cumprod[prev_timestep][:, None, None, None]
+            else:
+                alpha_bar_prev = torch.ones_like(alpha_bar_t)
+
+            current = (
+                torch.sqrt(alpha_bar_prev) * pred_clean
+                + torch.sqrt(1.0 - alpha_bar_prev) * pred_noise
+            )
+        return current
+
 
 def build_diffusion_model(config: Mapping[str, Any]) -> ConditionalLayeredDepthUNet:
     return ConditionalLayeredDepthUNet(
@@ -165,4 +215,3 @@ def build_diffusion_model(config: Mapping[str, Any]) -> ConditionalLayeredDepthU
         time_dim=int(config.get("time_dim", 256)),
         condition_valid_masks=bool(config.get("condition_valid_masks", False)),
     )
-

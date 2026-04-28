@@ -34,5 +34,6 @@ train:
 tensorboard:
   enabled: true
   image_every_epochs: 1
-  max_images: 2
+  max_images: 1
   max_layers: 8
+  diffusion_sample_steps: 25

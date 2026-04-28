@@ -222,6 +222,30 @@ def _log_tensorboard_images(
         )
 
     if scheduler is not None:
+        diffusion_sample_steps = int(tensorboard_config.get("diffusion_sample_steps", 0))
+        if diffusion_sample_steps <= 0:
+            return
+        model.eval()
+        device = next(model.parameters()).device
+        sampled = scheduler.sample_ddim(
+            model=model,
+            image=image.to(device),
+            shape=(image.shape[0], depth.shape[1], image.shape[-2], image.shape[-1]),
+            valid_masks=valid.to(device).float(),
+            steps=diffusion_sample_steps,
+        )
+        if bool(config["model"].get("diffusion", {}).get("log_depth", True)):
+            sampled = torch.exp(sampled)
+        sampled = sampled.clamp_min(0.0)
+        for layer_idx in range(min(sampled.shape[1], max_layers)):
+            layer_tag = f"layer_{layer_idx + 1:02d}"
+            pred = sampled[:, layer_idx : layer_idx + 1]
+            pred_valid = valid[:, layer_idx : layer_idx + 1].to(pred.device)
+            writer.add_images(
+                f"{tag_prefix}/prediction/{layer_tag}",
+                _depth_to_display(pred, pred_valid),
+                step,
+            )
         return
 
     model.eval()
