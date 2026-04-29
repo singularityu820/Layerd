@@ -160,6 +160,66 @@ is learning the diffusion objective; it is not directly comparable to SILog or
 metric depth error. Use TensorBoard prediction images and downstream depth
 metrics to judge depth quality.
 
+## Paper Tuple Evaluation
+
+The paper evaluation script checks relative-depth tuples on the Hugging Face
+`princeton-vl/LayeredDepth` validation set. This project adapts that protocol in
+`scripts/evaluate_layereddepth_tuples.py`: it loads one of our checkpoints,
+predicts a full layered-depth stack for each validation image, and reports
+correctness for `pairs`, `trips`, and `quads`.
+
+Run a quick sanity check first:
+
+```bash
+python scripts/evaluate_layereddepth_tuples.py \
+  --config configs/paper_index_concat.yaml \
+  --checkpoint runs/paper_index_concat/last.pt \
+  --subset layer_all \
+  --max-samples 16
+```
+
+Then run the full paper-style validation:
+
+```bash
+python scripts/evaluate_layereddepth_tuples.py \
+  --config configs/paper_index_concat.yaml \
+  --checkpoint runs/paper_index_concat/last.pt \
+  --subset layer_all \
+  --output runs/paper_index_concat/eval_layer_all.json
+```
+
+Also evaluate `layer_first`:
+
+```bash
+python scripts/evaluate_layereddepth_tuples.py \
+  --config configs/paper_index_concat.yaml \
+  --checkpoint runs/paper_index_concat/last.pt \
+  --subset layer_first \
+  --output runs/paper_index_concat/eval_layer_first.json
+```
+
+For diffusion checkpoints, use the same script and set the sampler length:
+
+```bash
+python scripts/evaluate_layereddepth_tuples.py \
+  --config configs/diffusion_unet.yaml \
+  --checkpoint runs/diffusion_unet/last.pt \
+  --subset layer_all \
+  --diffusion-steps 50 \
+  --output runs/diffusion_unet/eval_layer_all.json
+```
+
+The default `--layer-map auto` uses `full` mapping for 8-layer checkpoints and
+`compact` mapping for 4-layer prediction stacks. `compact` maps paper tuple
+layers `1/3/5/7` to model outputs `0/1/2/3`; `full` maps them to
+`0/2/4/6`, which matches our default 8-layer training configs.
+
+The current networks predict dense depth layers, not a separate layer-existence
+mask. That means fake/non-real tuples are evaluated strictly from whether the
+requested layer can be indexed and has a positive finite depth. To match the
+paper protocol more closely, the next architectural addition should be a
+valid-layer mask head or another explicit layer-existence predictor.
+
 ## Checkpoints
 
 The training loop writes:
