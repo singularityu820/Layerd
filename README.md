@@ -175,7 +175,8 @@ python scripts/evaluate_layereddepth_tuples.py \
   --config configs/paper_index_concat.yaml \
   --checkpoint runs/paper_index_concat/last.pt \
   --subset layer_all \
-  --max-samples 16
+  --max-samples 16 \
+  --streaming
 ```
 
 Then run the full paper-style validation:
@@ -213,6 +214,12 @@ The default `--layer-map auto` uses `full` mapping for 8-layer checkpoints and
 `compact` mapping for 4-layer prediction stacks. `compact` maps paper tuple
 layers `1/3/5/7` to model outputs `0/1/2/3`; `full` maps them to
 `0/2/4/6`, which matches our default 8-layer training configs.
+
+The script disables Hugging Face Xet/CAS downloads by default because some
+cloud images fail with `CAS Client Error: 401 Unauthorized` for anonymous
+requests. If your environment has authenticated Xet access and you want to use
+it, pass `--enable-xet`. For slow or unstable links, pass `--cache-dir` on a
+large disk and keep the default `--hf-timeout 120` or increase it.
 
 The current networks predict dense depth layers, not a separate layer-existence
 mask. That means fake/non-real tuples are evaluated strictly from whether the

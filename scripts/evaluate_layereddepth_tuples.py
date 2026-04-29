@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +193,15 @@ def _load_model(
     return model, scheduler, config
 
 
+def _configure_hf_downloads(args: argparse.Namespace) -> None:
+    if not args.enable_xet:
+        os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", str(args.hf_timeout))
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", str(args.hf_timeout))
+
+
 def evaluate(args: argparse.Namespace) -> dict[str, float]:
+    _configure_hf_downloads(args)
     try:
         from datasets import load_dataset
         from tqdm import tqdm
@@ -203,7 +212,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, float]:
 
     device = torch.device(args.device)
     model, scheduler, config = _load_model(args.config, args.checkpoint, device)
-    dataset = load_dataset(args.dataset, split=args.split, cache_dir=args.cache_dir)
+    dataset = load_dataset(
+        args.dataset,
+        split=args.split,
+        cache_dir=args.cache_dir,
+        streaming=args.streaming,
+    )
 
     metric_tracker = MetricTracker()
     iterator = tqdm(dataset, desc=f"evaluate {args.split}")
@@ -247,6 +261,22 @@ def main() -> None:
     parser.add_argument("--dataset", default="princeton-vl/LayeredDepth")
     parser.add_argument("--split", default="validation")
     parser.add_argument("--cache-dir", default=None)
+    parser.add_argument(
+        "--streaming",
+        action="store_true",
+        help="Stream samples from Hugging Face instead of downloading all parquet shards first.",
+    )
+    parser.add_argument(
+        "--enable-xet",
+        action="store_true",
+        help="Allow Hugging Face Xet/CAS downloads. Disabled by default to avoid CAS 401 errors on some servers.",
+    )
+    parser.add_argument(
+        "--hf-timeout",
+        type=int,
+        default=120,
+        help="Hugging Face download and metadata timeout in seconds.",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument(
